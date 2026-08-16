@@ -1,0 +1,23 @@
+{
+  "name": "mahaul-wtf",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n \"backend,frontend\" -c \"yellow,cyan\" \"uvicorn backend.main:app --reload --port 2439\" \"vite\"",
+    "dev:fe": "vite",
+    "dev:be": "uvicorn backend.main:app --reload --port 2439",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.4"
+  }
+}

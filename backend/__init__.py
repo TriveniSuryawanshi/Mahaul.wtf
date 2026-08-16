@@ -1,0 +1,1 @@
+"""Mahaul curated music API."""
