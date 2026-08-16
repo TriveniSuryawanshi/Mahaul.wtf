@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChevronDown, Coffee, Flame, Heart, HeartCrack, ListMusic, ListOrdered, PartyPopper, Pause, Play, Search, Shuffle, SkipBack, SkipForward, Sparkles, Volume2, Wrench } from 'lucide-react';
+import { ChevronDown, Coffee, Download, Flame, Heart, HeartCrack, ListMusic, ListOrdered, PartyPopper, Pause, Play, Search, Shuffle, SkipBack, SkipForward, Sparkles, Volume2, Wrench, X } from 'lucide-react';
 import './styles.css';
 import chaiImage from './assets/chai/chaitapri3.png';
 import mistryImage from './assets/mistry/RajuElectrician2.png';
@@ -58,33 +58,33 @@ const themes = [
   },
   {
     id: 'tractor', name: 'Pehla Pyaar', eyebrow: 'Pyar ka mausam', title: 'Golden sunlight and songs close to the heart.',
-    caption: 'Warm sunshine, sweet laughter, and timeless melodies that make every moment romantic.', track: 'Kesariya', artist: 'Love Classics',
-    image: loveImage, colors: ['#ff4d6d', '#800f2f'], icon: Heart,
+    caption: 'Long drives on village roads, gentle breeze, and sweet acoustic love melodies.', track: 'Pal Pal Dil Ke Paas', artist: 'Romantic Melodies',
+    image: loveImage, colors: ['#ff88a3', '#a22d4f'], icon: Heart,
   },
   {
-    id: 'mistry', name: 'Raju Mistry', eyebrow: 'Kaam ke baad', title: 'Golden hour on a half-built roof.',
-    caption: 'Dust settles, tools go quiet, and 80s & 90s hits carry across the city.', track: 'Ek Ladki Ko Dekha', artist: '1942: A Love Story · 1994',
-    image: mistryImage, colors: ['#db9b55', '#8d352d'], icon: Wrench,
+    id: 'mistry', name: 'Raju Mistry', eyebrow: 'Workshop Radio', title: 'Cassette deck on the workbench.',
+    caption: 'Soldering smoke, screwdriver spins, and the greatest 80s & 90s Bollywood hits.', track: 'Tip Tip Barsa Paani', artist: '80s & 90s Hits',
+    image: mistryImage, colors: ['#ffd166', '#a05c10'], icon: Wrench,
   },
   {
-    id: 'love', name: 'Dil Ka Tootna', eyebrow: 'Toote dil ki aawaaz', title: 'When silence speaks louder than words.',
-    caption: 'Quiet nights, fading memories, and songs for a heart learning to heal.', track: 'Tadap Tadap Ke', artist: 'Hum Dil De Chuke Sanam',
-    image: breakupImage, colors: ['#a2d2ff', '#3d5a80'], icon: HeartCrack,
+    id: 'love', name: 'Dard-e-Dil', eyebrow: 'Toota hua dil', title: 'Quiet nights and aching melodies.',
+    caption: 'Dim streetlight through the rain, cigarettes, and deep melancholic heartbreak.', track: 'Channa Mereya', artist: 'Sad & Melancholic',
+    image: breakupImage, colors: ['#90b4ce', '#2b4162'], icon: HeartCrack,
   },
   {
-    id: 'party', name: 'Party Mode', eyebrow: 'Desi Beats & Dhol', title: 'Turn up the bass and let the celebration begin.',
-    caption: 'High energy beats, iconic dance steps, and non-stop party anthems that set the floor on fire.', track: 'Party Hits', artist: 'Dance Anthems',
-    image: partyImage, colors: ['#ff007f', '#7928ca'], icon: PartyPopper,
+    id: 'party', name: 'Party Sharty', eyebrow: 'Full Bawaal', title: 'Bass boosted beats & wedding madness.',
+    caption: 'Neon lights, dhol beats, and high energy dance anthems that get everyone grooving.', track: 'Kala Chashma', artist: 'Party & Dance Hits',
+    image: partyImage, colors: ['#ff007f', '#7b2cbf'], icon: PartyPopper,
   },
   {
-    id: 'marathi', name: 'Marathi Dance', eyebrow: 'Dhol Tasha & Zingaat', title: 'High energy beats and unstoppable celebration.',
-    caption: 'Thunderous dhol tasha, electrifying folk rhythms, and non-stop Marathi dance anthems.', track: 'Zingaat', artist: 'Marathi Hits',
-    image: marathiDanceImage, colors: ['#ff5400', '#9d0208'], icon: Flame,
+    id: 'marathi', name: 'Marathi Tadka', eyebrow: 'Aapla Mahaul', title: 'Dhol tasha, energetic beats & authentic roots.',
+    caption: 'High-octane Marathi dance tracks and celebration anthems with unmatched energy.', track: 'Zingaat', artist: 'Marathi Energy Hits',
+    image: marathiDanceImage, colors: ['#ff9933', '#cc3300'], icon: Flame,
   },
   {
-    id: 'marathiLove', name: 'Marathi Love', eyebrow: 'Premache Sparsh', title: 'Soulful melodies and romantic echoes.',
-    caption: 'Gentle breeze, heartfelt Marathi lyrics, and timeless melodies of love.', track: 'Marathi Romantic', artist: 'Marathi Love Classics',
-    image: marathiLoveImage, colors: ['#e07a5f', '#8d352d'], icon: Heart,
+    id: 'marathiLove', name: 'Marathi Love', eyebrow: 'Premache Rang', title: 'Heart-touching Marathi melodies.',
+    caption: 'Gentle acoustic rhythms, poetic lyrics, and evergreen Marathi romantic melodies.', track: 'Chimbh Bhijalele', artist: 'Marathi Love Songs',
+    image: marathiLoveImage, colors: ['#e76f51', '#9a031e'], icon: Sparkles,
   },
 ];
 
@@ -109,6 +109,11 @@ function App() {
   const [dynamicPlaylists, setDynamicPlaylists] = useState(themePlaylists);
   const [isRadioMode, setIsRadioMode] = useState(false);
   
+  // PWA Install state
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [canInstall, setCanInstall] = useState(false);
+
   const fadeTimer = useRef();
   const audioRef = useRef(null);
   const ytPlayerRef = useRef(null);
@@ -120,6 +125,61 @@ function App() {
   const playedIdsRef = useRef(new Set());
   const isFetchingRadioRef = useRef(false);
   const consecutiveErrorsRef = useRef(0);
+
+  // Listen for PWA installation prompt
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredInstallPrompt(e);
+      setCanInstall(true);
+      setShowInstallBanner(true);
+    };
+
+    const handleAppInstalled = () => {
+      setShowInstallBanner(false);
+      setCanInstall(false);
+      setDeferredInstallPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setCanInstall(false);
+      setShowInstallBanner(false);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredInstallPrompt) {
+      alert("To install Mahaul on your device: tap your browser's menu (or Share button on iOS Safari) and select 'Add to Home Screen' / 'Install App' 📲");
+      return;
+    }
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallBanner(false);
+      setCanInstall(false);
+    }
+    setDeferredInstallPrompt(null);
+  };
+
+  // Close menus when tapping outside
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!event.target.closest('.select-wrap') && !event.target.closest('.song-menu') && !event.target.closest('.theme-menu')) {
+        setSongMenuOpen(false);
+        setThemeMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
 
   // Initialize YouTube IFrame API for rock-solid client-side audio playback
   useEffect(() => {
@@ -625,8 +685,42 @@ function App() {
               </div>
             )}
           </div>
+
+          {/* PWA Install Button */}
+          {canInstall && (
+            <button
+              className="select-button pwa-install-btn"
+              onClick={handleInstallClick}
+              title="Install Mahaul App"
+              aria-label="Install Mahaul App"
+            >
+              <Download size={14} />
+              <span>Install App</span>
+            </button>
+          )}
         </div>
       </nav>
+
+      {/* PWA Install Prompt Banner */}
+      {showInstallBanner && (
+        <div className="pwa-banner">
+          <div className="pwa-banner-left">
+            <img src="/pwa-192.png" alt="Mahaul App" className="pwa-banner-icon" />
+            <div className="pwa-banner-text">
+              <span className="pwa-banner-title">Install Mahaul App</span>
+              <span className="pwa-banner-subtitle">Play desi melodies & retro vibes anytime</span>
+            </div>
+          </div>
+          <div className="pwa-banner-actions">
+            <button className="pwa-install-action-btn" onClick={handleInstallClick}>
+              Install
+            </button>
+            <button className="pwa-dismiss-btn" onClick={() => setShowInstallBanner(false)} aria-label="Dismiss banner">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <section className="hero" id="top">
         <div className="copy" key={active.id}>
