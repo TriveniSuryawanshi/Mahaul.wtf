@@ -76,9 +76,10 @@ class PipedClient:
             "skip_download": True,
             "quiet": True,
             "no_warnings": True,
+            "format": None,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "ios", "mweb", "web"],
+                    "player_client": ["android_vr", "android", "mweb", "ios"],
                 }
             },
         }
@@ -107,9 +108,10 @@ class PipedClient:
             "skip_download": True,
             "quiet": True,
             "no_warnings": True,
+            "format": None,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "ios", "mweb", "web"],
+                    "player_client": ["android_vr", "android", "mweb", "ios"],
                 }
             },
         }
@@ -150,9 +152,10 @@ class PipedClient:
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
+            "format": None,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "ios", "mweb", "web"],
+                    "player_client": ["android_vr", "android", "mweb", "ios"],
                 }
             },
         }
