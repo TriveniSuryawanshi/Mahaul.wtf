@@ -536,7 +536,7 @@ function App() {
       <div className="grain" aria-hidden="true" />
 
       <nav className="nav">
-        <a className={`brand ${brandFlipping ? 'flipping' : ''}`} href="#top" aria-label="Mahaul home">
+        <a className={`brand ${brandFlipping ? 'flipping' : ''} lang-${brandLang}`} href="#top" aria-label="Mahaul home">
           <span className="brand-text">{brandLang === 'en' ? 'mahaul' : 'माहौल'}</span>
           <span className="brand-dot">.</span>
         </a>
@@ -706,20 +706,10 @@ function App() {
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => playNext(true)}
-          onError={async () => {
-            if (currentSong) {
-              streamCache.current.delete(currentSong.videoId);
-              setPlayerStatus('Refreshing stream…');
-              const freshPayload = await fetchStream(currentSong.videoId, true);
-              if (freshPayload && freshPayload.audio_url && audioRef.current) {
-                setStreamUrl(freshPayload.audio_url);
-                setDuration(freshPayload.duration || 0);
-                audioRef.current.src = freshPayload.audio_url;
-                audioRef.current.play().then(() => setPlaying(true)).catch(() => setPlayerStatus('Press play to start'));
-                return;
-              }
+          onError={() => {
+            if (activeEngineRef.current === 'html5') {
+              playNext(true);
             }
-            if (streamUrl) setPlayerStatus('Stream expired — skip to continue');
           }}
         />
       </div>

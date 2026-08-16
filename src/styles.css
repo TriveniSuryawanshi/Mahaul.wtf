@@ -29,14 +29,23 @@ button { color: inherit; }
 .brand {
   color: white;
   text-decoration: none;
-  font-family: 'Playfair Display', 'Rozha One', 'Noto Serif Devanagari', serif;
-  font-size: 32px;
+  font-family: 'Playfair Display', serif;
+  font-size: 30px;
   font-style: italic;
-  letter-spacing: -1.5px;
+  letter-spacing: -1.2px;
   text-shadow: 0 2px 10px rgba(0,0,0,0.4);
   display: inline-flex;
   align-items: baseline;
+  height: 38px;
+  line-height: 38px;
+  min-width: 120px;
   transition: opacity 0.35s ease, transform 0.35s ease, filter 0.35s ease;
+}
+.brand.lang-mr {
+  font-family: 'Noto Serif Devanagari', 'Rozha One', serif;
+  font-size: 26px;
+  font-style: normal;
+  letter-spacing: -0.2px;
 }
 .brand.flipping {
   opacity: 0;
@@ -45,6 +54,7 @@ button { color: inherit; }
 }
 .brand .brand-text {
   display: inline-block;
+  line-height: 1;
 }
 .brand span.brand-dot {
   color: var(--accent);
@@ -410,9 +420,19 @@ footer span { color: var(--accent); margin: 0 6px; }
 @keyframes disappear { from{opacity:1} to{opacity:0} }
 @keyframes copyIn { from{opacity:0;transform:translateY(15px)} to{opacity:1;transform:translateY(0)} }
 
-@media(max-width:850px){
-  .compact-player { bottom: 28px; width: calc(100vw - 20px); padding: 8px 14px 8px 10px; gap: 10px; }
-  .volume-panel input[type=range] { width: 50px; }
+@media (max-width: 850px) {
+  .app {
+    padding: 20px clamp(14px, 4vw, 32px) 20px;
+  }
+  .compact-player {
+    bottom: 28px;
+    width: calc(100vw - 20px);
+    padding: 8px 12px;
+    gap: 10px;
+  }
+  .volume-panel input[type=range] {
+    width: 45px;
+  }
   footer {
     bottom: 6px;
     font-size: 8.5px;
@@ -421,6 +441,146 @@ footer span { color: var(--accent); margin: 0 6px; }
   }
 }
 
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+@media (max-width: 650px) {
+  .app {
+    padding: 16px 12px 16px;
+  }
+  .nav {
+    gap: 8px;
+  }
+  .brand {
+    font-size: 24px;
+    letter-spacing: -0.8px;
+    height: 32px;
+    line-height: 32px;
+    min-width: 95px;
+  }
+  .brand.lang-mr {
+    font-size: 21px;
+    letter-spacing: -0.2px;
+  }
+  .nav-right {
+    gap: 6px;
+  }
+  .select-button {
+    padding: 6px 10px;
+    font-size: 13px;
+    gap: 6px;
+  }
+  .select-button.song-select-btn {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+  .song-menu {
+    width: min(320px, calc(100vw - 24px));
+    right: 0;
+    max-height: 380px;
+  }
+  .theme-menu {
+    width: min(190px, calc(100vw - 24px));
+    right: 0;
+  }
+
+  .hero {
+    min-height: calc(100svh - 180px);
+    padding-bottom: 70px;
+  }
+  h1 {
+    font-size: clamp(34px, 10vw, 56px);
+    letter-spacing: -1.5px;
+    margin: 12px 0;
+  }
+  .caption {
+    font-size: 13.5px;
+    line-height: 1.55;
+    padding: 0 4px;
+  }
+
+  /* Compact Player on Mobile */
+  .compact-player {
+    bottom: 22px;
+    width: calc(100vw - 16px);
+    padding: 6px 10px 6px 6px;
+    gap: 8px;
+    border-radius: 9999px;
+  }
+  .player-thumb-wrap {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+  }
+  .track-name {
+    font-size: 13px;
+    max-width: calc(100vw - 210px);
+  }
+  .track-time {
+    font-size: 10px;
+  }
+  .player-controls {
+    gap: 4px;
+  }
+  .volume-panel {
+    display: none; /* Hardware volume buttons on mobile */
+  }
+  .play-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .play-btn svg {
+    width: 17px;
+    height: 17px;
+  }
+  .skip-btn {
+    padding: 5px;
+  }
+  .skip-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  footer {
+    bottom: 4px;
+    font-size: 7.5px;
+    width: calc(100vw - 12px);
+    opacity: 0.65;
+  }
+}
+
+@media (max-width: 380px) {
+  .app {
+    padding: 12px 8px;
+  }
+  .brand {
+    font-size: 20px;
+    min-width: 80px;
+    height: 28px;
+    line-height: 28px;
+  }
+  .brand.lang-mr {
+    font-size: 17px;
+  }
+  .select-button {
+    padding: 5px 8px;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .select-button.song-select-btn span {
+    display: none; /* Icon-only on ultra-small screens */
+  }
+  .select-button.song-select-btn {
+    padding: 6px 8px;
+  }
+  .track-name {
+    max-width: calc(100vw - 190px);
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 
