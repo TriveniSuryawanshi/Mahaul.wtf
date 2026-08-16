@@ -579,7 +579,7 @@ footer span { color: var(--accent); margin: 0 6px; }
 
 .pwa-banner {
   position: fixed;
-  top: 16px;
+  bottom: 96px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1100;
@@ -594,7 +594,18 @@ footer span { color: var(--accent); margin: 0 6px; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  animation: copyIn 0.4s ease both;
+  animation: pwaBannerIn 0.4s ease both;
+}
+
+@keyframes pwaBannerIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .pwa-banner-left {
