@@ -111,6 +111,8 @@ function App() {
   
   const fadeTimer = useRef();
   const audioRef = useRef(null);
+  const ytPlayerRef = useRef(null);
+  const activeEngineRef = useRef('yt');
   const requestRef = useRef(0);
   const objectUrlRef = useRef('');
   const streamCache = useRef(new Map());
@@ -118,6 +120,85 @@ function App() {
   const playedIdsRef = useRef(new Set());
   const isFetchingRadioRef = useRef(false);
   const consecutiveErrorsRef = useRef(0);
+
+  // Initialize YouTube IFrame API for rock-solid client-side audio playback
+  useEffect(() => {
+    const initYT = () => {
+      if (window.YT && window.YT.Player && !ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current = new window.YT.Player('youtube-player-hidden', {
+            height: '1',
+            width: '1',
+            videoId: themePlaylists.chai[0]?.videoId || 'eaiZ25dIDUk',
+            playerVars: {
+              autoplay: 0,
+              controls: 0,
+              disablekb: 1,
+              fs: 0,
+              playsinline: 1,
+              rel: 0,
+            },
+            events: {
+              onReady: (e) => {
+                try {
+                  e.target.setVolume(volume);
+                } catch {}
+              },
+              onStateChange: (event) => {
+                if (event.data === 1) { // PLAYING
+                  setPlaying(true);
+                } else if (event.data === 2) { // PAUSED
+                  setPlaying(false);
+                } else if (event.data === 0) { // ENDED
+                  playNext(true);
+                }
+              },
+              onError: () => {
+                // If a track encounters an embedding error, skip to next
+                setTimeout(() => playNext(true), 1000);
+              },
+            },
+          });
+        } catch (err) {
+          console.warn('YT Player Init Error:', err);
+        }
+      }
+    };
+
+    if (window.YT && window.YT.Player) {
+      initYT();
+    } else {
+      const prevCallback = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        if (prevCallback) prevCallback();
+        initYT();
+      };
+      if (!document.getElementById('yt-iframe-api-script')) {
+        const tag = document.createElement('script');
+        tag.id = 'yt-iframe-api-script';
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.body.appendChild(tag);
+      }
+    }
+  }, []);
+
+  // Update playback time and duration every 250ms when playing via YouTube engine
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (activeEngineRef.current === 'yt' && ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
+        try {
+          const t = ytPlayerRef.current.getCurrentTime() || 0;
+          const d = ytPlayerRef.current.getDuration() || 0;
+          setCurrentTime(t);
+          if (d > 0) setDuration(d);
+          const state = ytPlayerRef.current.getPlayerState ? ytPlayerRef.current.getPlayerState() : -1;
+          if (state === 1 && !playing) setPlaying(true);
+          else if ((state === 2 || state === 0) && playing) setPlaying(false);
+        } catch {}
+      }
+    }, 250);
+    return () => clearInterval(interval);
+  }, [playing]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -151,9 +232,28 @@ function App() {
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume / 100;
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.setVolume === 'function') {
+      try {
+        ytPlayerRef.current.setVolume(volume);
+      } catch {}
+    }
   }, [volume]);
 
+  // Fetch clean track metadata via oEmbed so titles are always accurate
+  const fetchTrackTitle = (videoId) => {
+    if (songTitles[videoId]) return;
+    fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.title) {
+          setSongTitles((prev) => (prev[videoId] === data.title ? prev : { ...prev, [videoId]: data.title }));
+        }
+      })
+      .catch(() => {});
+  };
+
   const fetchStream = async (videoId, forceRefresh = false) => {
+    fetchTrackTitle(videoId);
     if (!forceRefresh && streamCache.current.has(videoId)) {
       const cached = streamCache.current.get(videoId);
       if (cached && cached.title) {
@@ -181,8 +281,11 @@ function App() {
     for (let offset = 1; offset <= 5; offset++) {
       const nextIdx = (currentIndex + offset) % playlist.length;
       const nextSong = playlist[nextIdx];
-      if (nextSong && !streamCache.current.has(nextSong.videoId)) {
-        fetchStream(nextSong.videoId);
+      if (nextSong) {
+        fetchTrackTitle(nextSong.videoId);
+        if (!streamCache.current.has(nextSong.videoId)) {
+          fetchStream(nextSong.videoId);
+        }
       }
     }
   };
@@ -223,27 +326,6 @@ function App() {
     }
   };
 
-  // On app startup: preload the first 5 songs of ALL themes in parallel batches
-  useEffect(() => {
-    let isCancelled = false;
-    const preloadFirst5AllThemes = async () => {
-      const allPlaylists = Object.values(themePlaylists);
-      for (const playlist of allPlaylists) {
-        if (isCancelled) break;
-        const first5 = playlist.slice(0, 5);
-        for (const song of first5) {
-          if (isCancelled) break;
-          if (!streamCache.current.has(song.videoId)) {
-            await fetchStream(song.videoId);
-            await new Promise((r) => setTimeout(r, 30));
-          }
-        }
-      }
-    };
-    preloadFirst5AllThemes();
-    return () => { isCancelled = true; };
-  }, []);
-
   // Continuous background catalog preloader for current theme
   useEffect(() => {
     let isCancelled = false;
@@ -251,9 +333,10 @@ function App() {
       for (let i = 0; i < songs.length; i++) {
         if (isCancelled) break;
         const song = songs[i];
+        fetchTrackTitle(song.videoId);
         if (!streamCache.current.has(song.videoId)) {
           await fetchStream(song.videoId);
-          await new Promise((r) => setTimeout(r, 50));
+          await new Promise((r) => setTimeout(r, 60));
         }
       }
     };
@@ -265,6 +348,7 @@ function App() {
     const song = playlist[index];
     if (!song) return;
     playedIdsRef.current.add(song.videoId);
+    fetchTrackTitle(song.videoId);
 
     // If approaching the end of curated playlist or in radio mode, prefetch more genre tracks in background
     if (index >= playlist.length - 2) {
@@ -277,6 +361,7 @@ function App() {
     setDuration(0);
     setPlayerStatus(isRadioMode ? 'Endless Radio · Same Genre' : 'From your playlist');
 
+    // Attempt backend proxy stream first; if backend unavailable, seamlessly play via YouTube client engine
     let payload = streamCache.current.get(song.videoId);
     if (!payload) {
       payload = await fetchStream(song.videoId);
@@ -284,36 +369,43 @@ function App() {
 
     if (requestId !== requestRef.current) return;
 
-    if (!payload || !payload.audio_url) {
-      consecutiveErrorsRef.current += 1;
-      if (consecutiveErrorsRef.current >= 3) {
-        setPlayerStatus('Backend API offline · Deploy backend & set VITE_API_URL');
-        setPlaying(false);
-        return;
+    if (payload && payload.audio_url) {
+      activeEngineRef.current = 'html5';
+      if (payload.title) {
+        song.title = payload.title;
+        setSongTitles((prev) => (prev[song.videoId] === payload.title ? prev : { ...prev, [song.videoId]: payload.title }));
       }
-      setPlayerStatus('Track unavailable, skipping…');
-      setTimeout(() => playNext(true), 1200);
-      return;
-    }
-
-    consecutiveErrorsRef.current = 0;
-
-    if (payload.title) {
-      song.title = payload.title;
-      setSongTitles((prev) => (prev[song.videoId] === payload.title ? prev : { ...prev, [song.videoId]: payload.title }));
-    }
-
-    setStreamUrl(payload.audio_url);
-    setDuration(payload.duration || 0);
-    setPlayerStatus(isRadioMode ? 'Endless Radio · Same Genre' : 'From your playlist');
-
-    if (audioRef.current) {
-      audioRef.current.src = payload.audio_url;
-      if (autoplay) {
-        audioRef.current.play().then(() => setPlaying(true)).catch((err) => {
-          console.warn('Autoplay error:', err);
-          setPlayerStatus('Press play to start');
-        });
+      setStreamUrl(payload.audio_url);
+      setDuration(payload.duration || 0);
+      if (audioRef.current) {
+        audioRef.current.src = payload.audio_url;
+        if (autoplay) {
+          audioRef.current.play().then(() => setPlaying(true)).catch((err) => {
+            console.warn('Autoplay error:', err);
+            setPlayerStatus('Press play to start');
+          });
+        }
+      }
+    } else {
+      // Direct YouTube engine fallback (bypasses all datacenter IP bans & bot blocks)
+      activeEngineRef.current = 'yt';
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+      setStreamUrl(`yt://${song.videoId}`);
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
+        try {
+          if (autoplay) {
+            ytPlayerRef.current.loadVideoById(song.videoId);
+            setPlaying(true);
+          } else {
+            ytPlayerRef.current.cueVideoById(song.videoId);
+            setPlaying(false);
+          }
+        } catch (err) {
+          console.warn('YT loadVideo error:', err);
+        }
       }
     }
 
@@ -391,15 +483,45 @@ function App() {
   };
 
   const togglePlayback = () => {
-    if (!audioRef.current || !streamUrl) return;
-    if (audioRef.current.paused) {
-      audioRef.current.play().catch((error) => setPlayerStatus(`Playback failed: ${error.name}`));
-    } else audioRef.current.pause();
+    if (activeEngineRef.current === 'html5' && audioRef.current && audioRef.current.src) {
+      if (audioRef.current.paused) {
+        audioRef.current.play().then(() => setPlaying(true)).catch((error) => setPlayerStatus(`Playback failed: ${error.name}`));
+      } else {
+        audioRef.current.pause();
+        setPlaying(false);
+      }
+    } else if (ytPlayerRef.current && typeof ytPlayerRef.current.getPlayerState === 'function') {
+      try {
+        const state = ytPlayerRef.current.getPlayerState();
+        if (state === 1) { // Playing
+          ytPlayerRef.current.pauseVideo();
+          setPlaying(false);
+        } else {
+          ytPlayerRef.current.playVideo();
+          setPlaying(true);
+        }
+      } catch (e) {
+        console.warn('Toggle playback error:', e);
+      }
+    } else if (audioRef.current && streamUrl) {
+      if (audioRef.current.paused) {
+        audioRef.current.play().then(() => setPlaying(true)).catch(() => {});
+      } else {
+        audioRef.current.pause();
+        setPlaying(false);
+      }
+    }
   };
 
   const handleSeekChange = (event) => {
     const newTime = Number(event.target.value);
-    if (audioRef.current) audioRef.current.currentTime = newTime;
+    if (activeEngineRef.current === 'html5' && audioRef.current) {
+      audioRef.current.currentTime = newTime;
+    } else if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+      try {
+        ytPlayerRef.current.seekTo(newTime, true);
+      } catch {}
+    }
     setCurrentTime(newTime);
   };
 
@@ -410,8 +532,14 @@ function App() {
       artist: isRadioMode ? 'Mahaul · Endless Radio' : 'Mahaul · playlist',
       album: active.name,
     });
-    navigator.mediaSession.setActionHandler('play', () => audioRef.current?.play());
-    navigator.mediaSession.setActionHandler('pause', () => audioRef.current?.pause());
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (activeEngineRef.current === 'html5') audioRef.current?.play();
+      else ytPlayerRef.current?.playVideo();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (activeEngineRef.current === 'html5') audioRef.current?.pause();
+      else ytPlayerRef.current?.pauseVideo();
+    });
     navigator.mediaSession.setActionHandler('nexttrack', () => playNext(true));
     navigator.mediaSession.setActionHandler('previoustrack', playPrevious);
     return () => {
@@ -658,6 +786,8 @@ function App() {
           }}
         />
       </div>
+
+      <div id="youtube-player-hidden" style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
 
       <footer>All music &amp; media rights belong to their respective copyright owners <span>·</span> mahaul.wtf <span>·</span> slow evenings &amp; long roads</footer>
     </main>
