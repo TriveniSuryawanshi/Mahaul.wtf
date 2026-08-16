@@ -252,40 +252,12 @@ function App() {
       .catch(() => {});
   };
 
-  const fetchStream = async (videoId, forceRefresh = false) => {
-    fetchTrackTitle(videoId);
-    if (!forceRefresh && streamCache.current.has(videoId)) {
-      const cached = streamCache.current.get(videoId);
-      if (cached && cached.title) {
-        setSongTitles((prev) => (prev[videoId] === cached.title ? prev : { ...prev, [videoId]: cached.title }));
-      }
-      return cached;
-    }
-    try {
-      const endpoint = API_URL ? `${API_URL}/api/v1/get_stream` : `/api/v1/get_stream`;
-      const response = await fetch(`${endpoint}?video_id=${encodeURIComponent(videoId)}${forceRefresh ? '&force_refresh=true' : ''}`);
-      if (!response.ok) return null;
-      const payload = await response.json();
-      if (!payload || !payload.audio_url) return null;
-      streamCache.current.set(videoId, payload);
-      if (payload && payload.title) {
-        setSongTitles((prev) => (prev[videoId] === payload.title ? prev : { ...prev, [videoId]: payload.title }));
-      }
-      return payload;
-    } catch {
-      return null;
-    }
-  };
-
   const prefetchUpcoming = (playlist, currentIndex) => {
     for (let offset = 1; offset <= 5; offset++) {
       const nextIdx = (currentIndex + offset) % playlist.length;
       const nextSong = playlist[nextIdx];
       if (nextSong) {
         fetchTrackTitle(nextSong.videoId);
-        if (!streamCache.current.has(nextSong.videoId)) {
-          fetchStream(nextSong.videoId);
-        }
       }
     }
   };
@@ -316,7 +288,7 @@ function App() {
             };
           });
           setIsRadioMode(true);
-          newSongs.slice(0, 3).forEach((s) => fetchStream(s.videoId));
+          newSongs.slice(0, 5).forEach((s) => fetchTrackTitle(s.videoId));
         }
       }
     } catch (err) {
@@ -326,7 +298,7 @@ function App() {
     }
   };
 
-  // Continuous background catalog preloader for current theme
+  // Continuous background metadata preloader for current theme
   useEffect(() => {
     let isCancelled = false;
     const preloadAll = async () => {
@@ -334,17 +306,14 @@ function App() {
         if (isCancelled) break;
         const song = songs[i];
         fetchTrackTitle(song.videoId);
-        if (!streamCache.current.has(song.videoId)) {
-          await fetchStream(song.videoId);
-          await new Promise((r) => setTimeout(r, 60));
-        }
+        await new Promise((r) => setTimeout(r, 60));
       }
     };
     preloadAll();
     return () => { isCancelled = true; };
   }, [activeId]);
 
-  const loadTrackForPlaylist = async (playlist, index, autoplay = false) => {
+  const loadTrackForPlaylist = (playlist, index, autoplay = false) => {
     const song = playlist[index];
     if (!song) return;
     playedIdsRef.current.add(song.videoId);
@@ -355,57 +324,25 @@ function App() {
       fetchMoreGenreTracks(activeId);
     }
 
-    const requestId = ++requestRef.current;
     autoPlayRef.current = autoplay;
     setCurrentTime(0);
     setDuration(0);
     setPlayerStatus(isRadioMode ? 'Endless Radio · Same Genre' : 'From your playlist');
 
-    // Attempt backend proxy stream first; if backend unavailable, seamlessly play via YouTube client engine
-    let payload = streamCache.current.get(song.videoId);
-    if (!payload) {
-      payload = await fetchStream(song.videoId);
-    }
+    activeEngineRef.current = 'yt';
+    setStreamUrl(`yt://${song.videoId}`);
 
-    if (requestId !== requestRef.current) return;
-
-    if (payload && payload.audio_url) {
-      activeEngineRef.current = 'html5';
-      if (payload.title) {
-        song.title = payload.title;
-        setSongTitles((prev) => (prev[song.videoId] === payload.title ? prev : { ...prev, [song.videoId]: payload.title }));
-      }
-      setStreamUrl(payload.audio_url);
-      setDuration(payload.duration || 0);
-      if (audioRef.current) {
-        audioRef.current.src = payload.audio_url;
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
+      try {
         if (autoplay) {
-          audioRef.current.play().then(() => setPlaying(true)).catch((err) => {
-            console.warn('Autoplay error:', err);
-            setPlayerStatus('Press play to start');
-          });
+          ytPlayerRef.current.loadVideoById(song.videoId);
+          setPlaying(true);
+        } else {
+          ytPlayerRef.current.cueVideoById(song.videoId);
+          setPlaying(false);
         }
-      }
-    } else {
-      // Direct YouTube engine fallback (bypasses all datacenter IP bans & bot blocks)
-      activeEngineRef.current = 'yt';
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      }
-      setStreamUrl(`yt://${song.videoId}`);
-      if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
-        try {
-          if (autoplay) {
-            ytPlayerRef.current.loadVideoById(song.videoId);
-            setPlaying(true);
-          } else {
-            ytPlayerRef.current.cueVideoById(song.videoId);
-            setPlaying(false);
-          }
-        } catch (err) {
-          console.warn('YT loadVideo error:', err);
-        }
+      } catch (err) {
+        console.warn('YT loadVideo error:', err);
       }
     }
 
