@@ -76,6 +76,11 @@ class PipedClient:
             "skip_download": True,
             "quiet": True,
             "no_warnings": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb", "web"],
+                }
+            },
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             res = ydl.extract_info(f"ytsearch15:{query}", download=False)
@@ -102,6 +107,11 @@ class PipedClient:
             "skip_download": True,
             "quiet": True,
             "no_warnings": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb", "web"],
+                }
+            },
         }
         url = playlist_id if playlist_id.startswith("http") else f"https://www.youtube.com/playlist?list={playlist_id}"
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -137,10 +147,14 @@ class PipedClient:
 
     def _streams_ytdlp_sync(self, video_id: str) -> dict[str, Any]:
         ydl_opts = {
-            "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb", "web"],
+                }
+            },
         }
         url = f"https://www.youtube.com/watch?v={video_id}"
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -151,14 +165,17 @@ class PipedClient:
 
             audio_streams: list[dict[str, Any]] = []
             for f in (info or {}).get("formats", []):
-                if f.get("acodec") != "none" and f.get("vcodec") == "none" and f.get("url"):
+                if f.get("acodec") != "none" and f.get("url"):
                     audio_streams.append({
                         "url": f["url"],
                         "format": str(f.get("ext") or "m4a").casefold(),
                         "bitrate": int(f.get("abr") or f.get("tbr") or 128) * 1000,
+                        "is_audio_only": f.get("vcodec") == "none",
                     })
             if not audio_streams:
                 raise PipedNotFoundError(f"No valid audio stream found for {video_id}")
+
+            audio_streams.sort(key=lambda s: (s["is_audio_only"], s["bitrate"]), reverse=True)
 
             return {
                 "title": (info or {}).get("title") or "",
