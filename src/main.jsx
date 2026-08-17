@@ -111,7 +111,6 @@ function App() {
   
   // PWA Install state
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
 
   const ytReadyRef = useRef(false);
@@ -134,11 +133,9 @@ function App() {
       e.preventDefault();
       setDeferredInstallPrompt(e);
       setCanInstall(true);
-      setShowInstallBanner(true);
     };
 
     const handleAppInstalled = () => {
-      setShowInstallBanner(false);
       setCanInstall(false);
       setDeferredInstallPrompt(null);
     };
@@ -148,7 +145,6 @@ function App() {
 
     if (window.matchMedia('(display-mode: standalone)').matches) {
       setCanInstall(false);
-      setShowInstallBanner(false);
     }
 
     return () => {
@@ -165,7 +161,6 @@ function App() {
     deferredInstallPrompt.prompt();
     const { outcome } = await deferredInstallPrompt.userChoice;
     if (outcome === 'accepted') {
-      setShowInstallBanner(false);
       setCanInstall(false);
     }
     setDeferredInstallPrompt(null);
@@ -792,27 +787,6 @@ function App() {
           )}
         </div>
       </nav>
-
-      {/* PWA Install Prompt Banner */}
-      {showInstallBanner && (
-        <div className="pwa-banner">
-          <div className="pwa-banner-left">
-            <img src="/pwa-192.png" alt="Mahaul App" className="pwa-banner-icon" />
-            <div className="pwa-banner-text">
-              <span className="pwa-banner-title">Install Mahaul App</span>
-              <span className="pwa-banner-subtitle">Play desi melodies & retro vibes anytime</span>
-            </div>
-          </div>
-          <div className="pwa-banner-actions">
-            <button className="pwa-install-action-btn" onClick={handleInstallClick}>
-              Install
-            </button>
-            <button className="pwa-dismiss-btn" onClick={() => setShowInstallBanner(false)} aria-label="Dismiss banner">
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-      )}
 
       <section className="hero" id="top">
         <div className="copy" key={active.id}>
