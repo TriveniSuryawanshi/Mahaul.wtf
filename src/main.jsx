@@ -114,6 +114,8 @@ function App() {
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
 
+  const ytReadyRef = useRef(false);
+  const pendingPlayRef = useRef(false);
   const fadeTimer = useRef();
   const audioRef = useRef(null);
   const ytPlayerRef = useRef(null);
@@ -181,14 +183,14 @@ function App() {
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, []);
 
-  // Initialize YouTube IFrame API for rock-solid client-side audio playback
+  // Initialize YouTube IFrame API for rock-solid audio playback across desktop and mobile
   useEffect(() => {
     const initYT = () => {
       if (window.YT && window.YT.Player && !ytPlayerRef.current) {
         try {
           ytPlayerRef.current = new window.YT.Player('youtube-player-hidden', {
-            height: '1',
-            width: '1',
+            height: '200',
+            width: '200',
             videoId: themePlaylists.chai[0]?.videoId || 'eaiZ25dIDUk',
             playerVars: {
               autoplay: 0,
@@ -196,13 +198,26 @@ function App() {
               disablekb: 1,
               fs: 0,
               playsinline: 1,
+              enablejsapi: 1,
+              origin: typeof window !== 'undefined' ? window.location.origin : '',
               rel: 0,
             },
             events: {
               onReady: (e) => {
+                ytReadyRef.current = true;
                 try {
                   e.target.setVolume(volume);
                 } catch {}
+                if (pendingPlayRef.current) {
+                  pendingPlayRef.current = false;
+                  const cur = dynamicPlaylists[activeId]?.[songIndex] || themePlaylists[activeId]?.[songIndex] || themePlaylists.chai[0];
+                  if (cur) {
+                    try {
+                      e.target.loadVideoById(cur.videoId);
+                      setPlaying(true);
+                    } catch {}
+                  }
+                }
               },
               onStateChange: (event) => {
                 if (event.data === 1) { // PLAYING
@@ -312,12 +327,40 @@ function App() {
       .catch(() => {});
   };
 
+  const fetchStream = async (videoId) => {
+    fetchTrackTitle(videoId);
+    if (streamCache.current.has(videoId)) {
+      const cached = streamCache.current.get(videoId);
+      if (cached && cached.title) {
+        setSongTitles((prev) => (prev[videoId] === cached.title ? prev : { ...prev, [videoId]: cached.title }));
+      }
+      return cached;
+    }
+    try {
+      const endpoint = API_URL ? `${API_URL}/api/v1/get_stream` : `/api/v1/get_stream`;
+      const response = await fetch(`${endpoint}?video_id=${encodeURIComponent(videoId)}`);
+      if (!response.ok) return null;
+      const payload = await response.json();
+      if (!payload || !payload.audio_url) return null;
+      streamCache.current.set(videoId, payload);
+      if (payload.title) {
+        setSongTitles((prev) => (prev[videoId] === payload.title ? prev : { ...prev, [videoId]: payload.title }));
+      }
+      return payload;
+    } catch {
+      return null;
+    }
+  };
+
   const prefetchUpcoming = (playlist, currentIndex) => {
-    for (let offset = 1; offset <= 5; offset++) {
+    for (let offset = 1; offset <= 3; offset++) {
       const nextIdx = (currentIndex + offset) % playlist.length;
       const nextSong = playlist[nextIdx];
       if (nextSong) {
         fetchTrackTitle(nextSong.videoId);
+        if (!streamCache.current.has(nextSong.videoId)) {
+          fetchStream(nextSong.videoId);
+        }
       }
     }
   };
@@ -373,7 +416,7 @@ function App() {
     return () => { isCancelled = true; };
   }, [activeId]);
 
-  const loadTrackForPlaylist = (playlist, index, autoplay = false) => {
+  const loadTrackForPlaylist = async (playlist, index, autoplay = false) => {
     const song = playlist[index];
     if (!song) return;
     playedIdsRef.current.add(song.videoId);
@@ -384,25 +427,61 @@ function App() {
       fetchMoreGenreTracks(activeId);
     }
 
+    const requestId = ++requestRef.current;
     autoPlayRef.current = autoplay;
     setCurrentTime(0);
     setDuration(0);
     setPlayerStatus(isRadioMode ? 'Endless Radio · Same Genre' : 'From your playlist');
 
-    activeEngineRef.current = 'yt';
-    setStreamUrl(`yt://${song.videoId}`);
+    // Attempt HTML5 backend proxy stream first for rock-solid mobile & PWA playback
+    let payload = streamCache.current.get(song.videoId);
+    if (!payload) {
+      payload = await fetchStream(song.videoId);
+    }
 
-    if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
-      try {
+    if (requestId !== requestRef.current) return;
+
+    if (payload && payload.audio_url) {
+      activeEngineRef.current = 'html5';
+      if (payload.title) {
+        setSongTitles((prev) => (prev[song.videoId] === payload.title ? prev : { ...prev, [song.videoId]: payload.title }));
+      }
+      setStreamUrl(payload.audio_url);
+      setDuration(payload.duration || 0);
+
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+        try { ytPlayerRef.current.pauseVideo(); } catch {}
+      }
+
+      if (audioRef.current) {
+        audioRef.current.src = payload.audio_url;
         if (autoplay) {
-          ytPlayerRef.current.loadVideoById(song.videoId);
-          setPlaying(true);
-        } else {
-          ytPlayerRef.current.cueVideoById(song.videoId);
-          setPlaying(false);
+          audioRef.current.play().then(() => setPlaying(true)).catch((err) => {
+            console.warn('Autoplay error:', err);
+          });
         }
-      } catch (err) {
-        console.warn('YT loadVideo error:', err);
+      }
+    } else {
+      // Direct YouTube engine fallback
+      activeEngineRef.current = 'yt';
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+      setStreamUrl(`yt://${song.videoId}`);
+
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
+        try {
+          if (autoplay) {
+            ytPlayerRef.current.loadVideoById(song.videoId);
+            setPlaying(true);
+          } else {
+            ytPlayerRef.current.cueVideoById(song.videoId);
+            setPlaying(false);
+          }
+        } catch (err) {
+          console.warn('YT loadVideo error:', err);
+        }
       }
     }
 
@@ -487,13 +566,26 @@ function App() {
         audioRef.current.pause();
         setPlaying(false);
       }
-    } else if (ytPlayerRef.current && typeof ytPlayerRef.current.getPlayerState === 'function') {
+    } else if (ytPlayerRef.current) {
       try {
-        const state = ytPlayerRef.current.getPlayerState();
+        if (!ytReadyRef.current) {
+          pendingPlayRef.current = true;
+          setPlaying(true);
+          return;
+        }
+        const state = typeof ytPlayerRef.current.getPlayerState === 'function' ? ytPlayerRef.current.getPlayerState() : -1;
         if (state === 1) { // Playing
           ytPlayerRef.current.pauseVideo();
           setPlaying(false);
         } else {
+          if (state === -1 || state === 5 || state === undefined) {
+            const currentSong = dynamicPlaylists[activeId]?.[songIndex] || themePlaylists[activeId]?.[songIndex] || themePlaylists.chai[0];
+            if (currentSong) {
+              ytPlayerRef.current.loadVideoById(currentSong.videoId);
+              setPlaying(true);
+              return;
+            }
+          }
           ytPlayerRef.current.playVideo();
           setPlaying(true);
         }
@@ -808,7 +900,19 @@ function App() {
         />
       </div>
 
-      <div id="youtube-player-hidden" style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
+      <div
+        id="youtube-player-hidden"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          right: 0,
+          width: 200,
+          height: 200,
+          opacity: 0.001,
+          pointerEvents: 'none',
+          zIndex: -100,
+        }}
+      />
 
       <footer>All music &amp; media rights belong to their respective copyright owners <span>·</span> mahaul.wtf <span>·</span> slow evenings &amp; long roads</footer>
     </main>
