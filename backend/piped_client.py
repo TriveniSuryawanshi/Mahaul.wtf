@@ -152,10 +152,11 @@ class PipedClient:
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
-            "format": None,
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
+            "socket_timeout": 8,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android_vr", "android", "mweb", "ios"],
+                    "player_client": ["android", "mweb"],
                 }
             },
         }

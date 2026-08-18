@@ -9,6 +9,7 @@ import breakupImage from './assets/breakup/breakup3.png';
 import partyImage from './assets/party/party.jpg';
 import marathiDanceImage from './assets/marathi/marathiDance.png';
 import marathiLoveImage from './assets/marathi/marathiLove.png';
+import songTitlesJson from './titles.json';
 import songListRaw from '../list.txt?raw';
 import songHtml80s90sRaw from '../80-90s songs.html?raw';
 import songHtml60s70sRaw from '../60-70s songs.html?raw';
@@ -30,7 +31,7 @@ const parsePlaylist = (rawHtml, eraLabel) => {
   return ids.map((videoId, index) => ({
     id: videoId,
     videoId,
-    title: titleMap.get(videoId) || `${eraLabel} Song #${index + 1}`,
+    title: songTitlesJson[videoId] || titleMap.get(videoId) || `${eraLabel} Song #${index + 1}`,
   }));
 };
 
@@ -88,10 +89,52 @@ const themes = [
   },
 ];
 
+function TypewriterBrand() {
+  const words = ['mahaul', 'माहौल'];
+  const [wordIndex, setWordIndex] = useState(0);
+  const [displayText, setDisplayText] = useState('m');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    const currentWord = words[wordIndex];
+    let timer;
+
+    if (!isDeleting && displayText === currentWord) {
+      // Pause at full word
+      timer = setTimeout(() => {
+        setIsDeleting(true);
+      }, 2400);
+    } else if (isDeleting && displayText === '') {
+      // Finished deleting, go to next word
+      setIsDeleting(false);
+      setWordIndex((prev) => (prev + 1) % words.length);
+    } else {
+      // Typing or deleting letters
+      const speed = isDeleting ? 65 : 125;
+      timer = setTimeout(() => {
+        const nextText = isDeleting
+          ? currentWord.substring(0, displayText.length - 1)
+          : currentWord.substring(0, displayText.length + 1);
+        setDisplayText(nextText);
+      }, speed);
+    }
+
+    return () => clearTimeout(timer);
+  }, [displayText, isDeleting, wordIndex]);
+
+  const currentLang = wordIndex === 0 ? 'en' : 'mr';
+
+  return (
+    <a className={`brand typewriter lang-${currentLang}`} href="#top" aria-label="Mahaul home">
+      <span className="brand-text">{displayText || '\u00A0'}</span>
+      <span className="brand-dot">.</span>
+      <span className="typewriter-cursor" aria-hidden="true">|</span>
+    </a>
+  );
+}
+
 function App() {
   const [activeId, setActiveId] = useState('chai');
-  const [brandLang, setBrandLang] = useState('en');
-  const [brandFlipping, setBrandFlipping] = useState(false);
   const [previousImage, setPreviousImage] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolume] = useState(68);
@@ -102,12 +145,10 @@ function App() {
   const [streamUrl, setStreamUrl] = useState('');
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [playerStatus, setPlayerStatus] = useState('Preparing playlist…');
-  const [songTitles, setSongTitles] = useState({});
+  const [playerStatus, setPlayerStatus] = useState('Ready');
+  const [songTitles, setSongTitles] = useState(songTitlesJson || {});
   const [isShuffle, setIsShuffle] = useState(true);
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth <= 768);
-  const [dynamicPlaylists, setDynamicPlaylists] = useState(themePlaylists);
-  const [isRadioMode, setIsRadioMode] = useState(false);
   
   // PWA Install state
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
@@ -118,14 +159,14 @@ function App() {
   const fadeTimer = useRef();
   const audioRef = useRef(null);
   const ytPlayerRef = useRef(null);
-  const activeEngineRef = useRef('yt');
+  const activeEngineRef = useRef('html5');
   const requestRef = useRef(0);
   const objectUrlRef = useRef('');
   const streamCache = useRef(new Map());
   const autoPlayRef = useRef(false);
-  const playedIdsRef = useRef(new Set());
-  const isFetchingRadioRef = useRef(false);
+  const playedPerPlaylistRef = useRef({});
   const consecutiveErrorsRef = useRef(0);
+  const prefetchTimerRef = useRef(null);
 
   // Listen for PWA installation prompt
   useEffect(() => {
@@ -178,7 +219,7 @@ function App() {
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, []);
 
-  // Initialize YouTube IFrame API for rock-solid audio playback across desktop and mobile
+  // Initialize YouTube IFrame API for fallback playback
   useEffect(() => {
     const initYT = () => {
       if (window.YT && window.YT.Player && !ytPlayerRef.current) {
@@ -186,7 +227,7 @@ function App() {
           ytPlayerRef.current = new window.YT.Player('youtube-player-hidden', {
             height: '200',
             width: '200',
-            videoId: themePlaylists.chai[0]?.videoId || 'eaiZ25dIDUk',
+            videoId: themePlaylists.chai[0]?.videoId || 'KASqzjKVbzE',
             playerVars: {
               autoplay: 0,
               controls: 0,
@@ -205,7 +246,7 @@ function App() {
                 } catch {}
                 if (pendingPlayRef.current) {
                   pendingPlayRef.current = false;
-                  const cur = dynamicPlaylists[activeId]?.[songIndex] || themePlaylists[activeId]?.[songIndex] || themePlaylists.chai[0];
+                  const cur = themePlaylists[activeId]?.[songIndex] || themePlaylists.chai[0];
                   if (cur) {
                     try {
                       e.target.loadVideoById(cur.videoId);
@@ -217,15 +258,22 @@ function App() {
               onStateChange: (event) => {
                 if (event.data === 1) { // PLAYING
                   setPlaying(true);
+                  consecutiveErrorsRef.current = 0;
                 } else if (event.data === 2) { // PAUSED
                   setPlaying(false);
                 } else if (event.data === 0) { // ENDED
+                  consecutiveErrorsRef.current = 0;
                   playNext(true);
                 }
               },
               onError: () => {
-                // If a track encounters an embedding error, skip to next
-                setTimeout(() => playNext(true), 1000);
+                consecutiveErrorsRef.current += 1;
+                if (consecutiveErrorsRef.current <= 2) {
+                  setTimeout(() => playNext(true), 1200);
+                } else {
+                  setPlaying(false);
+                  setPlayerStatus('Playback paused. Tap play to retry');
+                }
               },
             },
           });
@@ -271,17 +319,6 @@ function App() {
   }, [playing]);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setBrandFlipping(true);
-      setTimeout(() => {
-        setBrandLang((prev) => (prev === 'en' ? 'mr' : 'en'));
-        setBrandFlipping(false);
-      }, 350);
-    }, 3800);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
     };
@@ -290,13 +327,14 @@ function App() {
   }, []);
 
   const active = themes.find((theme) => theme.id === activeId);
-  const songs = dynamicPlaylists[activeId] || themePlaylists[activeId] || themePlaylists.chai;
+  const songs = themePlaylists[activeId] || themePlaylists.chai;
   const currentSong = songs[songIndex] || songs[0];
   const currentSongTitle = (currentSong && (songTitles[currentSong.videoId] || currentSong.title)) || 'Your playlist';
   const thumbnailUrl = `https://i.ytimg.com/vi/${currentSong?.videoId}/hqdefault.jpg`;
 
   useEffect(() => () => {
     clearTimeout(fadeTimer.current);
+    clearTimeout(prefetchTimerRef.current);
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
   }, []);
 
@@ -309,7 +347,7 @@ function App() {
     }
   }, [volume]);
 
-  // Fetch clean track metadata via oEmbed so titles are always accurate
+  // Fetch clean track metadata via oEmbed as fallback
   const fetchTrackTitle = (videoId) => {
     if (songTitles[videoId]) return;
     fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`)
@@ -323,7 +361,6 @@ function App() {
   };
 
   const fetchStream = async (videoId) => {
-    fetchTrackTitle(videoId);
     if (streamCache.current.has(videoId)) {
       const cached = streamCache.current.get(videoId);
       if (cached && cached.title) {
@@ -347,88 +384,37 @@ function App() {
     }
   };
 
-  const prefetchUpcoming = (playlist, currentIndex) => {
-    for (let offset = 1; offset <= 3; offset++) {
-      const nextIdx = (currentIndex + offset) % playlist.length;
+  // Only prefetch the immediate next track after 3s of stable playback to preserve bandwidth & CPU
+  const prefetchSingleNext = (playlist, currentIndex) => {
+    clearTimeout(prefetchTimerRef.current);
+    prefetchTimerRef.current = setTimeout(() => {
+      const nextIdx = (currentIndex + 1) % playlist.length;
       const nextSong = playlist[nextIdx];
-      if (nextSong) {
-        fetchTrackTitle(nextSong.videoId);
-        if (!streamCache.current.has(nextSong.videoId)) {
-          fetchStream(nextSong.videoId);
-        }
+      if (nextSong && !streamCache.current.has(nextSong.videoId)) {
+        fetchStream(nextSong.videoId);
       }
-    }
+    }, 3000);
   };
 
-  const fetchMoreGenreTracks = async (themeId) => {
-    if (isFetchingRadioRef.current) return;
-    isFetchingRadioRef.current = true;
-    try {
-      const excludeList = Array.from(playedIdsRef.current).join(',');
-      const endpoint = API_URL ? `${API_URL}/api/v1/recommendations` : `/api/v1/recommendations`;
-      const res = await fetch(`${endpoint}?theme_id=${encodeURIComponent(themeId)}&exclude_ids=${encodeURIComponent(excludeList)}`);
-      if (res.ok) {
-        const items = await res.json();
-        if (Array.isArray(items) && items.length > 0) {
-          const newSongs = items.map((item) => ({
-            id: item.id,
-            videoId: item.id,
-            title: item.title,
-          }));
-          setDynamicPlaylists((prev) => {
-            const existing = prev[themeId] || themePlaylists[themeId] || [];
-            const existingIds = new Set(existing.map((s) => s.videoId));
-            const fresh = newSongs.filter((s) => !existingIds.has(s.videoId));
-            if (fresh.length === 0) return prev;
-            return {
-              ...prev,
-              [themeId]: [...existing, ...fresh],
-            };
-          });
-          setIsRadioMode(true);
-          newSongs.slice(0, 5).forEach((s) => fetchTrackTitle(s.videoId));
-        }
-      }
-    } catch (err) {
-      console.warn('Error fetching recommendations:', err);
-    } finally {
-      isFetchingRadioRef.current = false;
-    }
-  };
-
-  // Continuous background metadata preloader for current theme
-  useEffect(() => {
-    let isCancelled = false;
-    const preloadAll = async () => {
-      for (let i = 0; i < songs.length; i++) {
-        if (isCancelled) break;
-        const song = songs[i];
-        fetchTrackTitle(song.videoId);
-        await new Promise((r) => setTimeout(r, 60));
-      }
-    };
-    preloadAll();
-    return () => { isCancelled = true; };
-  }, [activeId]);
-
-  const loadTrackForPlaylist = async (playlist, index, autoplay = false) => {
+  const loadTrackForPlaylist = async (playlist, index, autoplay = false, currentActiveThemeId = activeId) => {
     const song = playlist[index];
     if (!song) return;
-    playedIdsRef.current.add(song.videoId);
-    fetchTrackTitle(song.videoId);
 
-    // If approaching the end of curated playlist or in radio mode, prefetch more genre tracks in background
-    if (index >= playlist.length - 2) {
-      fetchMoreGenreTracks(activeId);
+    if (!playedPerPlaylistRef.current[currentActiveThemeId]) {
+      playedPerPlaylistRef.current[currentActiveThemeId] = new Set();
     }
+    playedPerPlaylistRef.current[currentActiveThemeId].add(song.videoId);
 
     const requestId = ++requestRef.current;
     autoPlayRef.current = autoplay;
+    if (autoplay) {
+      setPlaying(true);
+    }
     setCurrentTime(0);
     setDuration(0);
-    setPlayerStatus(isRadioMode ? 'Endless Radio · Same Genre' : 'From your playlist');
+    setPlayerStatus('Loading audio…');
 
-    // Attempt HTML5 backend proxy stream first for rock-solid mobile & PWA playback
+    // Attempt HTML5 backend proxy stream
     let payload = streamCache.current.get(song.videoId);
     if (!payload) {
       payload = await fetchStream(song.videoId);
@@ -443,6 +429,7 @@ function App() {
       }
       setStreamUrl(payload.audio_url);
       setDuration(payload.duration || 0);
+      setPlayerStatus('Ready');
 
       if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
         try { ytPlayerRef.current.pauseVideo(); } catch {}
@@ -451,8 +438,11 @@ function App() {
       if (audioRef.current) {
         audioRef.current.src = payload.audio_url;
         if (autoplay) {
-          audioRef.current.play().then(() => setPlaying(true)).catch((err) => {
-            console.warn('Autoplay error:', err);
+          audioRef.current.play().then(() => {
+            setPlaying(true);
+            consecutiveErrorsRef.current = 0;
+          }).catch((err) => {
+            console.warn('Autoplay pending gesture:', err);
           });
         }
       }
@@ -461,9 +451,10 @@ function App() {
       activeEngineRef.current = 'yt';
       if (audioRef.current) {
         audioRef.current.pause();
-        audioRef.current.src = '';
+        audioRef.current.removeAttribute('src');
       }
       setStreamUrl(`yt://${song.videoId}`);
+      setPlayerStatus('Playing via web player');
 
       if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
         try {
@@ -480,11 +471,11 @@ function App() {
       }
     }
 
-    prefetchUpcoming(playlist, index);
+    prefetchSingleNext(playlist, index);
   };
 
   const loadTrack = (index, autoplay = false) => {
-    loadTrackForPlaylist(songs, index, autoplay);
+    loadTrackForPlaylist(songs, index, autoplay, activeId);
   };
 
   useEffect(() => {
@@ -493,55 +484,51 @@ function App() {
   }, []);
 
   const playNext = async (autoplay = true) => {
-    const currentList = dynamicPlaylists[activeId] || themePlaylists[activeId] || themePlaylists.chai;
+    const currentList = themePlaylists[activeId] || themePlaylists.chai;
     if (currentList.length === 0) return;
+
+    if (!playedPerPlaylistRef.current[activeId]) {
+      playedPerPlaylistRef.current[activeId] = new Set();
+    }
+    const playedSet = playedPerPlaylistRef.current[activeId];
+    if (currentList[songIndex]?.videoId) {
+      playedSet.add(currentList[songIndex].videoId);
+    }
 
     let nextIndex;
     if (isShuffle) {
-      const unplayed = currentList
+      let unplayedIndices = currentList
         .map((_, i) => i)
-        .filter((i) => i !== songIndex && !playedIdsRef.current.has(currentList[i]?.videoId));
+        .filter((i) => i !== songIndex && !playedSet.has(currentList[i]?.videoId));
 
-      if (unplayed.length > 0) {
-        nextIndex = unplayed[Math.floor(Math.random() * unplayed.length)];
-      } else if (currentList.length > 1) {
-        nextIndex = songIndex;
-        while (nextIndex === songIndex) nextIndex = Math.floor(Math.random() * currentList.length);
-        fetchMoreGenreTracks(activeId);
-      } else {
-        nextIndex = 0;
-      }
-      setSongIndex(nextIndex);
-      loadTrackForPlaylist(currentList, nextIndex, autoplay);
-    } else {
-      nextIndex = songIndex + 1;
-      if (nextIndex < currentList.length) {
-        if (nextIndex >= currentList.length - 2) {
-          fetchMoreGenreTracks(activeId);
+      if (unplayedIndices.length === 0) {
+        // All songs in this playlist have been shuffled through! Reset playlist shuffle history.
+        playedSet.clear();
+        if (currentList[songIndex]?.videoId) {
+          playedSet.add(currentList[songIndex].videoId);
         }
-        setSongIndex(nextIndex);
-        loadTrackForPlaylist(currentList, nextIndex, autoplay);
+        unplayedIndices = currentList
+          .map((_, i) => i)
+          .filter((i) => i !== songIndex);
+        nextIndex = unplayedIndices.length > 0
+          ? unplayedIndices[Math.floor(Math.random() * unplayedIndices.length)]
+          : 0;
       } else {
-        // Reached the end of the playlist -> seamless transition to Endless Radio Mode
-        setPlayerStatus('Loading endless genre radio…');
-        await fetchMoreGenreTracks(activeId);
-        setDynamicPlaylists((latest) => {
-          const updated = latest[activeId] || currentList;
-          if (updated.length > nextIndex) {
-            setSongIndex(nextIndex);
-            loadTrackForPlaylist(updated, nextIndex, autoplay);
-          } else {
-            setSongIndex(0);
-            loadTrackForPlaylist(updated, 0, autoplay);
-          }
-          return latest;
-        });
+        nextIndex = unplayedIndices[Math.floor(Math.random() * unplayedIndices.length)];
       }
+    } else {
+      nextIndex = (songIndex + 1) % currentList.length;
     }
+
+    if (currentList[nextIndex]?.videoId) {
+      playedSet.add(currentList[nextIndex].videoId);
+    }
+    setSongIndex(nextIndex);
+    loadTrackForPlaylist(currentList, nextIndex, autoplay, activeId);
   };
 
   const playPrevious = () => {
-    const currentList = dynamicPlaylists[activeId] || themePlaylists[activeId] || themePlaylists.chai;
+    const currentList = themePlaylists[activeId] || themePlaylists.chai;
     if (currentList.length < 2) return;
     let prevIndex;
     if (isShuffle) {
@@ -550,13 +537,16 @@ function App() {
       prevIndex = (songIndex - 1 + currentList.length) % currentList.length;
     }
     setSongIndex(prevIndex);
-    loadTrackForPlaylist(currentList, prevIndex, true);
+    loadTrackForPlaylist(currentList, prevIndex, true, activeId);
   };
 
   const togglePlayback = () => {
     if (activeEngineRef.current === 'html5' && audioRef.current && audioRef.current.src) {
       if (audioRef.current.paused) {
-        audioRef.current.play().then(() => setPlaying(true)).catch((error) => setPlayerStatus(`Playback failed: ${error.name}`));
+        audioRef.current.play().then(() => {
+          setPlaying(true);
+          consecutiveErrorsRef.current = 0;
+        }).catch((error) => setPlayerStatus(`Playback failed: ${error.name}`));
       } else {
         audioRef.current.pause();
         setPlaying(false);
@@ -574,9 +564,9 @@ function App() {
           setPlaying(false);
         } else {
           if (state === -1 || state === 5 || state === undefined) {
-            const currentSong = dynamicPlaylists[activeId]?.[songIndex] || themePlaylists[activeId]?.[songIndex] || themePlaylists.chai[0];
-            if (currentSong) {
-              ytPlayerRef.current.loadVideoById(currentSong.videoId);
+            const cur = themePlaylists[activeId]?.[songIndex] || themePlaylists.chai[0];
+            if (cur) {
+              ytPlayerRef.current.loadVideoById(cur.videoId);
               setPlaying(true);
               return;
             }
@@ -589,7 +579,10 @@ function App() {
       }
     } else if (audioRef.current && streamUrl) {
       if (audioRef.current.paused) {
-        audioRef.current.play().then(() => setPlaying(true)).catch(() => {});
+        audioRef.current.play().then(() => {
+          setPlaying(true);
+          consecutiveErrorsRef.current = 0;
+        }).catch(() => {});
       } else {
         audioRef.current.pause();
         setPlaying(false);
@@ -613,8 +606,8 @@ function App() {
     if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentSongTitle,
-      artist: isRadioMode ? 'Mahaul · Endless Radio' : 'Mahaul · playlist',
-      album: active.name,
+      artist: active.name,
+      album: 'Mahaul',
     });
     navigator.mediaSession.setActionHandler('play', () => {
       if (activeEngineRef.current === 'html5') audioRef.current?.play();
@@ -632,7 +625,7 @@ function App() {
       navigator.mediaSession.setActionHandler('nexttrack', null);
       navigator.mediaSession.setActionHandler('previoustrack', null);
     };
-  }, [songIndex, activeId, songTitles, isShuffle, isRadioMode]);
+  }, [songIndex, activeId, songTitles, isShuffle]);
 
   const selectTheme = (nextId) => {
     if (nextId === activeId) return;
@@ -640,28 +633,39 @@ function App() {
     setActiveId(nextId);
     setThemeMenuOpen(false);
     setSearchQuery('');
-    setIsRadioMode(false);
-    playedIdsRef.current.clear();
+    consecutiveErrorsRef.current = 0;
+    autoPlayRef.current = true;
+    setPlaying(true);
 
-    // Stop current track immediately
+    // Stop current track cleanly
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
-    setPlaying(false);
 
-    // Reset to new theme's curated playlist first
+    // Load new theme's playlist and immediately start playing
     const curatedPlaylist = themePlaylists[nextId] || themePlaylists.chai;
-    setDynamicPlaylists((prev) => ({
-      ...prev,
-      [nextId]: curatedPlaylist,
-    }));
     const newIndex = 0;
     setSongIndex(newIndex);
-    loadTrackForPlaylist(curatedPlaylist, newIndex, true);
+    loadTrackForPlaylist(curatedPlaylist, newIndex, true, nextId);
 
     clearTimeout(fadeTimer.current);
     fadeTimer.current = setTimeout(() => setPreviousImage(null), 900);
+  };
+
+  const handleAudioError = () => {
+    if (activeEngineRef.current === 'html5') {
+      consecutiveErrorsRef.current += 1;
+      console.warn(`Audio error count: ${consecutiveErrorsRef.current}`);
+      if (consecutiveErrorsRef.current <= 2) {
+        setTimeout(() => {
+          playNext(true);
+        }, 1000);
+      } else {
+        setPlaying(false);
+        setPlayerStatus('Playback paused. Tap play to retry');
+      }
+    }
   };
 
   const filteredSongs = songs
@@ -683,10 +687,7 @@ function App() {
       <div className="grain" aria-hidden="true" />
 
       <nav className="nav">
-        <a className={`brand ${brandFlipping ? 'flipping' : ''} lang-${brandLang}`} href="#top" aria-label="Mahaul home">
-          <span className="brand-text">{brandLang === 'en' ? 'mahaul' : 'माहौल'}</span>
-          <span className="brand-dot">.</span>
-        </a>
+        <TypewriterBrand />
         
         <div className="nav-right">
           {/* Song Picker Dropdown */}
@@ -702,7 +703,7 @@ function App() {
             </button>
             {songMenuOpen && (
               <div className="song-menu">
-                <div className="song-menu-header">Playlist ({songs.length} tracks){isRadioMode ? ' · Endless Radio' : ''}</div>
+                <div className="song-menu-header">Playlist ({songs.length} tracks)</div>
                 <div className="song-menu-search">
                   <Search size={14} className="search-icon" />
                   <input
@@ -855,22 +856,33 @@ function App() {
           ref={audioRef}
           src={streamUrl || undefined}
           preload="auto"
-          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          playsInline
+          webkit-playsinline="true"
+          onTimeUpdate={(event) => {
+            setCurrentTime(event.currentTarget.currentTime);
+            if (consecutiveErrorsRef.current > 0) consecutiveErrorsRef.current = 0;
+          }}
           onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || duration)}
           onCanPlay={() => {
             if (autoPlayRef.current && audioRef.current) {
-              autoPlayRef.current = false;
-              audioRef.current.play().catch(() => {});
+              audioRef.current.play().then(() => {
+                setPlaying(true);
+                consecutiveErrorsRef.current = 0;
+                autoPlayRef.current = false;
+              }).catch(() => {});
             }
           }}
-          onPlay={() => setPlaying(true)}
+          onPlay={() => {
+            setPlaying(true);
+            autoPlayRef.current = false;
+            consecutiveErrorsRef.current = 0;
+          }}
           onPause={() => setPlaying(false)}
-          onEnded={() => playNext(true)}
-          onError={() => {
-            if (activeEngineRef.current === 'html5') {
-              playNext(true);
-            }
+          onEnded={() => {
+            consecutiveErrorsRef.current = 0;
+            playNext(true);
           }}
+          onError={handleAudioError}
         />
       </div>
 
@@ -894,7 +906,3 @@ function App() {
 }
 
 createRoot(document.getElementById('root')).render(<App />);
-
-
-
-
